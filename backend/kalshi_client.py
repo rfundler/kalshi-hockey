@@ -13,9 +13,9 @@ class KalshiClient:
         self.base_url = settings.kalshi_api_base
         self.ws_url = settings.kalshi_ws_url
         self.auth = KalshiAuth(
-            api_key=settings.kalshi_api_key,
+            api_key=settings.effective_api_key,
             private_key_path=settings.kalshi_private_key_path,
-            private_key_content=settings.kalshi_private_key
+            private_key_content=settings.effective_private_key
         )
         self._http_client: Optional[httpx.AsyncClient] = None
         self._ws: Optional[websockets.WebSocketClientProtocol] = None

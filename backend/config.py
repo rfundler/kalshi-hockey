@@ -4,9 +4,19 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     kalshi_api_key: str = ""
+    api_key_id: str = ""  # Alternative name
     kalshi_private_key_path: str = ""  # Path to key file (local)
     kalshi_private_key: str = ""  # Key content directly (Railway)
-    kalshi_env: str = "demo"  # "demo" or "prod"
+    private_key_pem: str = ""  # Alternative name
+    kalshi_env: str = "prod"  # "demo" or "prod"
+
+    @property
+    def effective_api_key(self) -> str:
+        return self.kalshi_api_key or self.api_key_id
+
+    @property
+    def effective_private_key(self) -> str:
+        return self.kalshi_private_key or self.private_key_pem
     demo_mode: bool = True  # Set to False when ready to use real API
 
     @property
