@@ -451,9 +451,10 @@ class MomentumBot:
         self.min_price_move: int = 10  # cents
         self.max_shares: int = 50
         self.poll_interval: float = 0.5  # seconds
+        self.lookback_seconds: float = 1.0  # compare price to 1 second ago
         self.enabled_events: set = set()  # event_tickers with bot enabled
         self.event_markets: dict = {}  # event_ticker -> list of market tickers
-        self.last_prices: dict = {}  # market_ticker -> last_price
+        self.price_history: dict = {}  # market_ticker -> list of (timestamp, price)
         self.trades: list = []
         self._task: Optional[asyncio.Task] = None
         self._running: bool = False
@@ -481,9 +482,9 @@ class MomentumBot:
             self.enabled_events.discard(event_ticker)
             self.event_markets.pop(event_ticker, None)
             # Clear price history for this event's markets
-            for ticker in list(self.last_prices.keys()):
+            for ticker in list(self.price_history.keys()):
                 if ticker.startswith(event_ticker):
-                    del self.last_prices[ticker]
+                    del self.price_history[ticker]
             print(f"🛑 Bot disabled for {event_ticker}")
 
             # Stop loop if no events enabled
@@ -521,6 +522,8 @@ class MomentumBot:
 
     async def _check_prices(self):
         """Check prices for all monitored markets."""
+        now = time.time()
+
         for event_ticker in list(self.enabled_events):
             tickers = self.event_markets.get(event_ticker, [])
             for ticker in tickers:
@@ -533,14 +536,37 @@ class MomentumBot:
 
                     current_price = (yes_bid + yes_ask) // 2 if yes_bid and yes_ask else yes_bid or yes_ask
 
-                    if ticker in self.last_prices:
-                        last_price = self.last_prices[ticker]
-                        price_change = current_price - last_price
+                    # Initialize price history for this ticker
+                    if ticker not in self.price_history:
+                        self.price_history[ticker] = []
+
+                    # Add current price to history
+                    self.price_history[ticker].append((now, current_price))
+
+                    # Remove old entries (keep last 5 seconds of data)
+                    self.price_history[ticker] = [
+                        (ts, p) for ts, p in self.price_history[ticker]
+                        if now - ts <= 5.0
+                    ]
+
+                    # Find price from ~1 second ago
+                    target_time = now - self.lookback_seconds
+                    old_price = None
+                    for ts, p in self.price_history[ticker]:
+                        if ts <= target_time:
+                            old_price = p
+                        else:
+                            break
+
+                    # Compare to price from 1 second ago
+                    if old_price is not None:
+                        price_change = current_price - old_price
 
                         if abs(price_change) >= self.min_price_move:
                             await self._execute_trade(ticker, event_ticker, price_change, orderbook)
+                            # Clear history after trade to avoid repeat triggers
+                            self.price_history[ticker] = [(now, current_price)]
 
-                    self.last_prices[ticker] = current_price
                 except Exception as e:
                     print(f"Error checking {ticker}: {e}")
 
