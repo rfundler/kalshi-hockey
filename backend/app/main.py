@@ -450,7 +450,7 @@ class MomentumBot:
     def __init__(self):
         self.min_price_move: int = 10  # cents
         self.max_shares: int = 50
-        self.poll_interval: int = 5  # seconds
+        self.poll_interval: float = 0.5  # seconds
         self.enabled_events: set = set()  # event_tickers with bot enabled
         self.event_markets: dict = {}  # event_ticker -> list of market tickers
         self.last_prices: dict = {}  # market_ticker -> last_price
