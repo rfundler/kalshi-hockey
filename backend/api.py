@@ -460,37 +460,53 @@ async def get_events(
     """Get events from Kalshi API."""
     client = get_kalshi_client()
     try:
-        params = f"limit={limit}"
+        # If series_ticker provided, query markets directly and group by event
         if series_ticker:
-            params += f"&series_ticker={series_ticker}"
+            params = f"limit=200&series_ticker={series_ticker}"
+            result = await client._request("GET", f"/markets?{params}")
+            markets = result.get("markets", [])
 
-        result = await client._request("GET", f"/events?{params}")
-        events = result.get("events", [])
+            # Group markets by event_ticker
+            events_map = {}
+            for market in markets:
+                event_ticker = market.get("event_ticker", "")
+                if event_ticker not in events_map:
+                    events_map[event_ticker] = {
+                        "ticker": event_ticker,
+                        "event_ticker": event_ticker,
+                        "title": market.get("title", "").split(" - ")[0] if " - " in market.get("title", "") else market.get("title", ""),
+                        "category": market.get("category", ""),
+                        "markets": []
+                    }
+                events_map[event_ticker]["markets"].append(market)
 
-        # Filter by category if specified
-        if category:
-            events = [e for e in events if e.get("category", "").lower() == category.lower()]
+            events = list(events_map.values())
+        else:
+            # Original behavior for non-series queries
+            params = f"limit={limit}"
+            result = await client._request("GET", f"/events?{params}")
+            events = result.get("events", [])
+
+            # Filter by category if specified
+            if category:
+                events = [e for e in events if e.get("category", "").lower() == category.lower()]
+
+            # For each event, get its markets
+            for event in events[:limit]:
+                event_ticker = event.get("event_ticker", "")
+                try:
+                    markets_result = await client._request("GET", f"/markets?event_ticker={event_ticker}")
+                    event["markets"] = markets_result.get("markets", [])
+                except:
+                    event["markets"] = []
+                event["ticker"] = event_ticker
 
         # Filter by search if specified
         if search:
             search_lower = search.lower()
             events = [e for e in events if search_lower in e.get("title", "").lower()]
 
-        # For each event, get its markets
-        enriched_events = []
-        for event in events[:limit]:
-            event_ticker = event.get("event_ticker", "")
-            try:
-                markets_result = await client._request("GET", f"/markets?event_ticker={event_ticker}")
-                event["markets"] = markets_result.get("markets", [])
-            except:
-                event["markets"] = []
-
-            # Include event_ticker in the response
-            event["ticker"] = event_ticker
-            enriched_events.append(event)
-
-        return {"events": enriched_events}
+        return {"events": events[:limit]}
     except Exception as e:
         print(f"Error fetching events: {e}")
         return {"events": [], "error": str(e)}
