@@ -571,19 +571,23 @@ class MomentumBot:
                     print(f"Error checking {ticker}: {e}")
 
     async def _execute_trade(self, ticker: str, event_ticker: str, price_change: int, orderbook: dict):
-        """Execute a momentum trade."""
+        """Execute a momentum trade. Bid+1 as IOC order."""
         if price_change > 0:
+            # Price went UP - buy YES at highest YES bid + 1
             side = "yes"
-            no_levels = orderbook.get("orderbook", {}).get("no", [])
-            if no_levels:
-                ask_price = 100 - no_levels[0][0]
+            yes_levels = orderbook.get("orderbook", {}).get("yes", [])
+            if yes_levels:
+                highest_bid = max(level[0] for level in yes_levels)
+                order_price = highest_bid + 1
             else:
                 return
         else:
+            # Price went DOWN - buy NO at highest NO bid + 1
             side = "no"
-            yes_levels = orderbook.get("orderbook", {}).get("yes", [])
-            if yes_levels:
-                ask_price = 100 - yes_levels[0][0]
+            no_levels = orderbook.get("orderbook", {}).get("no", [])
+            if no_levels:
+                highest_bid = max(level[0] for level in no_levels)
+                order_price = highest_bid + 1
             else:
                 return
 
@@ -592,7 +596,7 @@ class MomentumBot:
             ticker=ticker,
             event_ticker=event_ticker,
             side=side,
-            price=ask_price,
+            price=order_price,
             count=self.max_shares,
             trigger_price_change=price_change
         )
@@ -603,17 +607,17 @@ class MomentumBot:
                 "side": side,
                 "action": "buy",
                 "count": self.max_shares,
-                "type": "limit",
+                "type": "ioc",  # Immediate or cancel
             }
             if side == "yes":
-                order_data["yes_price"] = ask_price
+                order_data["yes_price"] = order_price
             else:
-                order_data["no_price"] = ask_price
+                order_data["no_price"] = order_price
 
             result = await client.request("POST", "/portfolio/orders", json_data=order_data)
             trade.order_id = result.get("order", {}).get("order_id")
-            trade.status = "filled" if result.get("order", {}).get("status") == "executed" else "placed"
-            print(f"🤖 BOT TRADE: {side.upper()} {self.max_shares}x {ticker} @ {ask_price}¢ ({price_change:+d}¢ move)")
+            trade.status = "filled" if result.get("order", {}).get("status") == "executed" else "cancelled"
+            print(f"🤖 BOT TRADE: {side.upper()} {self.max_shares}x {ticker} @ {order_price}¢ IOC ({price_change:+d}¢ move)")
         except Exception as e:
             trade.status = "failed"
             print(f"❌ Bot trade failed: {e}")
