@@ -14,10 +14,11 @@ class Settings(BaseSettings):
     def effective_api_key(self) -> str:
         return self.kalshi_api_key or self.api_key_id
 
+    demo_mode: bool = False  # Set to True for testing without API
+
     @property
     def effective_private_key(self) -> str:
         return self.kalshi_private_key or self.private_key_pem
-    demo_mode: bool = True  # Set to False when ready to use real API
 
     @property
     def kalshi_api_base(self) -> str:
