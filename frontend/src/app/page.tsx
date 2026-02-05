@@ -491,9 +491,9 @@ export default function TradingDashboard() {
         const botMode = pennyBotStrikes[market.ticker]
         if (!botMode || botMode === 'off') continue
 
-        // Skip injury-related strikes
+        // Skip injury-related strikes (e.g., "injury / injured")
         const title = (market.title || market.yes_sub_title || '').toLowerCase()
-        if (title.includes('injury') || title.includes('injured')) continue
+        if (title.includes('injury')) continue
 
         const ob = orderbooks[market.ticker]
         if (!ob) continue
