@@ -433,13 +433,16 @@ export default function TradingDashboard() {
   }, [selectedEvent])
 
   // Penny bot logic
+  const PENNY_BOT_ORDER_SIZE = 50  // Max 50 contracts per order
+  const PENNY_BOT_MIN_BID_QTY = 125  // Only penny jump if 125+ contracts at best bid
+
   const placePennyOrder = async (ticker: string, side: 'yes' | 'no', price: number) => {
     try {
       const body: any = {
         ticker,
         side,
         action: 'buy',
-        count: 10,
+        count: PENNY_BOT_ORDER_SIZE,
         type: 'limit',
       }
       if (side === 'yes') body.yes_price = price
@@ -452,13 +455,23 @@ export default function TradingDashboard() {
       })
       const data = await res.json()
       if (data.order) {
-        const logMsg = `[${new Date().toLocaleTimeString()}] Placed ${side.toUpperCase()} bid: ${price}¢ x10 on ${ticker}`
+        const logMsg = `[${new Date().toLocaleTimeString()}] Placed ${side.toUpperCase()} bid: ${price}¢ x${PENNY_BOT_ORDER_SIZE} on ${ticker}`
         setPennyBotLog(prev => [logMsg, ...prev].slice(0, 50))
         fetchOrders()
         fetchBalance()
       }
     } catch (e) {
       console.error('Penny bot order failed:', e)
+    }
+  }
+
+  const cancelPennyOrder = async (orderId: string) => {
+    try {
+      await fetch(`${API}/api/orders/${orderId}`, { method: 'DELETE' })
+      fetchOrders()
+      fetchBalance()
+    } catch (e) {
+      console.error('Cancel order failed:', e)
     }
   }
 
@@ -489,36 +502,52 @@ export default function TradingDashboard() {
           // Skip if we're already processing this strike/side
           if (pennyBotPending.current.has(key)) continue
 
-          // Check if we already have ANY resting order on this strike/side - max 1 order per strike/side
-          const existingOrder = orders.find(
-            o => o.ticker === market.ticker && o.side === side
-          )
-          if (existingOrder) continue
-
           // Get bids for this side
           const bids = side === 'yes' ? ob.yes : ob.no
           if (!bids || bids.length === 0) continue
 
-          // Find highest bid and its quantity
+          // Find highest bid and its quantity (excluding our own orders)
           const highestBid = Math.max(...bids.map(([p]) => p))
           const highestBidQty = bids.filter(([p]) => p === highestBid).reduce((sum, [_, q]) => sum + q, 0)
 
-          // Check conditions: bid < 90, qty at highest bid > 69
-          if (highestBid >= 90 || highestBidQty <= 69) continue
-
-          // Check if we already hold > 50 contracts on this side
-          const position = positions.find(p => p.ticker === market.ticker)
-          const heldQty = position?.position || 0
-          // position > 0 means YES, position < 0 means NO
-          if (side === 'yes' && heldQty > 50) continue
-          if (side === 'no' && heldQty < -50) continue
+          // Check if we already have a resting order on this strike/side
+          const existingOrder = orders.find(
+            o => o.ticker === market.ticker && o.side === side
+          )
 
           // Target price is 1 cent above highest bid
           const targetPrice = highestBid + 1
 
-          // Check if we already placed at this exact price (got filled) - skip until price changes
-          const lastPriceKey = `${market.ticker}-${side}`
-          if (pennyBotLastPrice[lastPriceKey] === targetPrice) continue
+          // If we have an existing order, check if it needs to be cancelled and replaced
+          if (existingOrder) {
+            const ourPrice = side === 'yes' ? existingOrder.yes_price : existingOrder.no_price
+
+            // If our order is NOT at the top (someone outbid us), cancel and re-place
+            if (ourPrice && ourPrice < targetPrice) {
+              pennyBotPending.current.add(key)
+              const logMsg = `[${new Date().toLocaleTimeString()}] Cancelling ${side.toUpperCase()} @ ${ourPrice}¢ - outbid on ${market.ticker}`
+              setPennyBotLog(prev => [logMsg, ...prev].slice(0, 50))
+
+              try {
+                await cancelPennyOrder(existingOrder.order_id)
+                // Small delay before re-placing
+                await new Promise(r => setTimeout(r, 500))
+              } finally {
+                setTimeout(() => pennyBotPending.current.delete(key), 1000)
+              }
+            }
+            continue // Will re-check on next cycle after cancel
+          }
+
+          // Check conditions: bid < 90, qty at highest bid >= 125
+          if (highestBid >= 90 || highestBidQty < PENNY_BOT_MIN_BID_QTY) continue
+
+          // Check if we already hold >= 50 contracts on this side (max position)
+          const position = positions.find(p => p.ticker === market.ticker)
+          const heldQty = position?.position || 0
+          // position > 0 means YES, position < 0 means NO
+          if (side === 'yes' && heldQty >= 50) continue
+          if (side === 'no' && heldQty <= -50) continue
 
           // Check there's no ask that would immediately fill us (spread exists)
           const oppositeAsks = side === 'yes' ? ob.no : ob.yes
@@ -531,10 +560,8 @@ export default function TradingDashboard() {
           pennyBotPending.current.add(key)
           try {
             await placePennyOrder(market.ticker, side, targetPrice)
-            // Track the price we placed at
-            setPennyBotLastPrice(prev => ({ ...prev, [lastPriceKey]: targetPrice }))
+            setPennyBotLastPrice(prev => ({ ...prev, [`${market.ticker}-${side}`]: targetPrice }))
           } finally {
-            // Remove from pending after a delay to allow order to appear in orders list
             setTimeout(() => pennyBotPending.current.delete(key), 2000)
           }
         }
