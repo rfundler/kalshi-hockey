@@ -433,16 +433,13 @@ export default function TradingDashboard() {
   }, [selectedEvent])
 
   // Penny bot logic
-  const PENNY_BOT_ORDER_SIZE = 50  // Max 50 contracts per order
-  const PENNY_BOT_MIN_BID_QTY = 125  // Only penny jump if 125+ contracts at best bid
-
   const placePennyOrder = async (ticker: string, side: 'yes' | 'no', price: number) => {
     try {
       const body: any = {
         ticker,
         side,
         action: 'buy',
-        count: PENNY_BOT_ORDER_SIZE,
+        count: 10,
         type: 'limit',
       }
       if (side === 'yes') body.yes_price = price
@@ -455,23 +452,13 @@ export default function TradingDashboard() {
       })
       const data = await res.json()
       if (data.order) {
-        const logMsg = `[${new Date().toLocaleTimeString()}] Placed ${side.toUpperCase()} bid: ${price}¢ x${PENNY_BOT_ORDER_SIZE} on ${ticker}`
+        const logMsg = `[${new Date().toLocaleTimeString()}] Placed ${side.toUpperCase()} bid: ${price}¢ x10 on ${ticker}`
         setPennyBotLog(prev => [logMsg, ...prev].slice(0, 50))
         fetchOrders()
         fetchBalance()
       }
     } catch (e) {
       console.error('Penny bot order failed:', e)
-    }
-  }
-
-  const cancelPennyOrder = async (orderId: string) => {
-    try {
-      await fetch(`${API}/api/orders/${orderId}`, { method: 'DELETE' })
-      fetchOrders()
-      fetchBalance()
-    } catch (e) {
-      console.error('Cancel order failed:', e)
     }
   }
 
@@ -491,10 +478,6 @@ export default function TradingDashboard() {
         const botMode = pennyBotStrikes[market.ticker]
         if (!botMode || botMode === 'off') continue
 
-        // Skip injury-related strikes (e.g., "injury / injured")
-        const title = (market.title || market.yes_sub_title || '').toLowerCase()
-        if (title.includes('injury')) continue
-
         const ob = orderbooks[market.ticker]
         if (!ob) continue
 
@@ -506,58 +489,36 @@ export default function TradingDashboard() {
           // Skip if we're already processing this strike/side
           if (pennyBotPending.current.has(key)) continue
 
+          // Check if we already have ANY resting order on this strike/side - max 1 order per strike/side
+          const existingOrder = orders.find(
+            o => o.ticker === market.ticker && o.side === side
+          )
+          if (existingOrder) continue
+
           // Get bids for this side
           const bids = side === 'yes' ? ob.yes : ob.no
           if (!bids || bids.length === 0) continue
 
-          // Find highest bid and its quantity (excluding our own orders)
+          // Find highest bid and its quantity
           const highestBid = Math.max(...bids.map(([p]) => p))
           const highestBidQty = bids.filter(([p]) => p === highestBid).reduce((sum, [_, q]) => sum + q, 0)
 
-          // Check if we already have a resting order on this strike/side
-          const existingOrder = orders.find(
-            o => o.ticker === market.ticker && o.side === side
-          )
+          // Check conditions: bid < 90, qty at highest bid > 69
+          if (highestBid >= 90 || highestBidQty <= 69) continue
+
+          // Check if we already hold > 50 contracts on this side
+          const position = positions.find(p => p.ticker === market.ticker)
+          const heldQty = position?.position || 0
+          // position > 0 means YES, position < 0 means NO
+          if (side === 'yes' && heldQty > 50) continue
+          if (side === 'no' && heldQty < -50) continue
 
           // Target price is 1 cent above highest bid
           const targetPrice = highestBid + 1
 
-          // Check if parameters are valid: bid < 90, qty at highest bid >= 125
-          const paramsValid = highestBid < 90 && highestBidQty >= PENNY_BOT_MIN_BID_QTY
-
-          // If we have an existing order, check if it needs to be cancelled
-          if (existingOrder) {
-            const ourPrice = side === 'yes' ? existingOrder.yes_price : existingOrder.no_price
-
-            // Cancel if: outbid OR parameters no longer valid
-            const outbid = ourPrice && ourPrice < targetPrice
-            const shouldCancel = outbid || !paramsValid
-
-            if (shouldCancel) {
-              pennyBotPending.current.add(key)
-              const reason = !paramsValid ? 'params invalid' : 'outbid'
-              const logMsg = `[${new Date().toLocaleTimeString()}] Cancelling ${side.toUpperCase()} @ ${ourPrice}¢ - ${reason} on ${market.ticker}`
-              setPennyBotLog(prev => [logMsg, ...prev].slice(0, 50))
-
-              try {
-                await cancelPennyOrder(existingOrder.order_id)
-                await new Promise(r => setTimeout(r, 500))
-              } finally {
-                setTimeout(() => pennyBotPending.current.delete(key), 1000)
-              }
-            }
-            continue // Will re-check on next cycle after cancel
-          }
-
-          // Don't place new order if params invalid
-          if (!paramsValid) continue
-
-          // Check if we already hold >= 50 contracts on this side (max position)
-          const position = positions.find(p => p.ticker === market.ticker)
-          const heldQty = position?.position || 0
-          // position > 0 means YES, position < 0 means NO
-          if (side === 'yes' && heldQty >= 50) continue
-          if (side === 'no' && heldQty <= -50) continue
+          // Check if we already placed at this exact price (got filled) - skip until price changes
+          const lastPriceKey = `${market.ticker}-${side}`
+          if (pennyBotLastPrice[lastPriceKey] === targetPrice) continue
 
           // Check there's no ask that would immediately fill us (spread exists)
           const oppositeAsks = side === 'yes' ? ob.no : ob.yes
@@ -570,8 +531,10 @@ export default function TradingDashboard() {
           pennyBotPending.current.add(key)
           try {
             await placePennyOrder(market.ticker, side, targetPrice)
-            setPennyBotLastPrice(prev => ({ ...prev, [`${market.ticker}-${side}`]: targetPrice }))
+            // Track the price we placed at
+            setPennyBotLastPrice(prev => ({ ...prev, [lastPriceKey]: targetPrice }))
           } finally {
+            // Remove from pending after a delay to allow order to appear in orders list
             setTimeout(() => pennyBotPending.current.delete(key), 2000)
           }
         }
@@ -736,7 +699,7 @@ export default function TradingDashboard() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-yellow-800">🤖 Penny Bot</span>
-                <span className="text-xs text-yellow-600">(bid &lt;90¢, qty ≥125)</span>
+                <span className="text-xs text-yellow-600">(bid &lt;90¢, qty &gt;69)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500">All strikes:</span>
@@ -797,27 +760,16 @@ export default function TradingDashboard() {
           </div>
 
           {/* Penny Bot Log */}
-          {(pennyBotLog.length > 0 || Object.values(pennyBotStrikes).some(m => m !== 'off')) && (
+          {pennyBotLog.length > 0 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-yellow-800">
-                  🤖 Penny Bot {Object.values(pennyBotStrikes).filter(m => m !== 'off').length > 0 &&
-                    `(${Object.values(pennyBotStrikes).filter(m => m !== 'off').length} active)`}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPennyBotStrikes({})}
-                    className="text-xs bg-red-100 text-red-700 hover:bg-red-200 px-2 py-1 rounded font-medium"
-                  >
-                    Stop All
-                  </button>
-                  <button
-                    onClick={() => setPennyBotLog([])}
-                    className="text-xs text-yellow-600 hover:text-yellow-800"
-                  >
-                    Clear Log
-                  </button>
-                </div>
+                <span className="text-sm font-medium text-yellow-800">🤖 Penny Bot Log</span>
+                <button
+                  onClick={() => setPennyBotLog([])}
+                  className="text-xs text-yellow-600 hover:text-yellow-800"
+                >
+                  Clear
+                </button>
               </div>
               <div className="bg-white rounded border border-yellow-200 p-2 max-h-24 overflow-y-auto">
                 {pennyBotLog.map((log, i) => (
@@ -1175,8 +1127,8 @@ export default function TradingDashboard() {
       ) : (
         // Market list view
         <div className="max-w-7xl mx-auto px-4 py-4">
-          {/* Search and Controls */}
-          <div className="mb-6 flex items-center justify-between gap-4">
+          {/* Search */}
+          <div className="mb-6">
             <input
               type="text"
               placeholder="Search markets..."
@@ -1184,14 +1136,6 @@ export default function TradingDashboard() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full max-w-md bg-white border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            {Object.values(pennyBotStrikes).some(m => m !== 'off') && (
-              <button
-                onClick={() => setPennyBotStrikes({})}
-                className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap"
-              >
-                🛑 Stop All Penny Bots ({Object.values(pennyBotStrikes).filter(m => m !== 'off').length})
-              </button>
-            )}
           </div>
 
           {loading ? (
