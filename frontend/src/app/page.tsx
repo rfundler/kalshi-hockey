@@ -131,6 +131,24 @@ export default function TradingDashboard() {
   const [pennyBotLog, setPennyBotLog] = useState<string[]>([])
   const [pennyBotLastPrice, setPennyBotLastPrice] = useState<Record<string, number>>({})
 
+  // Momentum Bot state
+  const [momentumBotEnabled, setMomentumBotEnabled] = useState(false)
+  const [momentumBotStatus, setMomentumBotStatus] = useState<{
+    monitored_markets: number
+    tickers: string[]
+    config: { min_price_move: number; max_shares: number; poll_interval: number }
+    recent_trades: Array<{
+      timestamp: string
+      ticker: string
+      side: string
+      price: number
+      count: number
+      trigger: number
+      status: string
+    }>
+    total_trades: number
+  } | null>(null)
+
   // Fetch balance
   const fetchBalance = async () => {
     try {
@@ -167,6 +185,42 @@ export default function TradingDashboard() {
       await fetch(`${API}/api/orders/${orderId}`, { method: 'DELETE' })
       fetchOrders()
       fetchBalance()
+    } catch (e) {}
+  }
+
+  // Momentum Bot functions
+  const fetchBotStatus = async () => {
+    try {
+      const res = await fetch(`${API}/api/bot/status`)
+      const data = await res.json()
+      setMomentumBotEnabled(data.enabled)
+      setMomentumBotStatus(data)
+    } catch (e) {}
+  }
+
+  const startBot = async () => {
+    try {
+      const res = await fetch(`${API}/api/bot/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true, min_price_move: 10, max_shares: 50, poll_interval: 5 })
+      })
+      const data = await res.json()
+      if (data.status === 'started') {
+        setMomentumBotEnabled(true)
+        fetchBotStatus()
+      }
+    } catch (e) {}
+  }
+
+  const stopBot = async () => {
+    try {
+      const res = await fetch(`${API}/api/bot/stop`, { method: 'POST' })
+      const data = await res.json()
+      if (data.status === 'stopped') {
+        setMomentumBotEnabled(false)
+        fetchBotStatus()
+      }
     } catch (e) {}
   }
 
@@ -356,11 +410,13 @@ export default function TradingDashboard() {
     fetchBalance()
     fetchPositions()
     fetchEvents()
+    fetchBotStatus()
 
     const interval = setInterval(() => {
       fetchBalance()
       fetchPositions()
-    }, 1000)
+      fetchBotStatus()
+    }, 2000)
     return () => clearInterval(interval)
   }, [])
 
@@ -511,6 +567,24 @@ export default function TradingDashboard() {
               </span>
             </div>
             <div className="flex items-center gap-4 text-sm">
+              {/* Momentum Bot Toggle */}
+              <div className="flex items-center gap-2 border-r pr-4 mr-2">
+                <button
+                  onClick={momentumBotEnabled ? stopBot : startBot}
+                  className={`px-3 py-1.5 rounded-lg font-medium text-sm transition-all ${
+                    momentumBotEnabled
+                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                      : 'bg-green-100 text-green-700 hover:bg-green-200'
+                  }`}
+                >
+                  {momentumBotEnabled ? '🤖 Stop Bot' : '🤖 Start Bot'}
+                </button>
+                {momentumBotEnabled && momentumBotStatus && (
+                  <span className="text-xs text-gray-500">
+                    {momentumBotStatus.monitored_markets} markets | {momentumBotStatus.total_trades} trades
+                  </span>
+                )}
+              </div>
               <div className="text-gray-600">
                 <span className="font-medium text-gray-900">
                   ${balance !== null ? (balance / 100).toFixed(0) : '---'}
@@ -527,6 +601,29 @@ export default function TradingDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Bot Status Bar */}
+      {momentumBotEnabled && momentumBotStatus && momentumBotStatus.recent_trades.length > 0 && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-4 text-sm">
+              <span className="font-medium text-yellow-800">Recent Bot Trades:</span>
+              <div className="flex gap-2 overflow-x-auto">
+                {momentumBotStatus.recent_trades.slice(-5).reverse().map((trade, i) => (
+                  <span
+                    key={i}
+                    className={`px-2 py-0.5 rounded text-xs font-mono ${
+                      trade.side === 'yes' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {trade.side.toUpperCase()} {trade.count}x @ {trade.price}¢ ({trade.trigger > 0 ? '+' : ''}{trade.trigger}¢)
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       {selectedEvent ? (

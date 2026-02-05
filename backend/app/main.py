@@ -424,3 +424,244 @@ async def get_positions():
         return {"market_positions": active_positions}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ============== MOMENTUM BOT ==============
+
+import asyncio
+from dataclasses import dataclass, field
+from datetime import datetime
+
+
+@dataclass
+class BotTrade:
+    timestamp: str
+    ticker: str
+    side: str  # "yes" or "no"
+    price: int
+    count: int
+    trigger_price_change: int  # The price move that triggered this trade
+    order_id: Optional[str] = None
+    status: str = "pending"  # pending, filled, failed
+
+
+@dataclass
+class MomentumBot:
+    enabled: bool = False
+    min_price_move: int = 10  # cents
+    max_shares: int = 50
+    poll_interval: int = 5  # seconds
+    last_prices: dict = field(default_factory=dict)  # ticker -> last_price
+    trades: list = field(default_factory=list)
+    _task: Optional[asyncio.Task] = None
+    monitored_tickers: list = field(default_factory=list)
+
+    async def start(self, tickers: list[str]):
+        """Start monitoring the given tickers."""
+        if self.enabled:
+            return
+        self.enabled = True
+        self.monitored_tickers = tickers
+        self.last_prices = {}
+        self._task = asyncio.create_task(self._run_loop())
+        print(f"🤖 Momentum bot started, monitoring {len(tickers)} markets")
+
+    async def stop(self):
+        """Stop the bot."""
+        self.enabled = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+        print("🛑 Momentum bot stopped")
+
+    async def _run_loop(self):
+        """Main bot loop - polls prices and places orders on big moves."""
+        while self.enabled:
+            try:
+                await self._check_prices()
+            except Exception as e:
+                print(f"Bot error: {e}")
+            await asyncio.sleep(self.poll_interval)
+
+    async def _check_prices(self):
+        """Check prices for all monitored tickers."""
+        for ticker in self.monitored_tickers:
+            try:
+                # Get current orderbook
+                orderbook = await client.request("GET", f"/markets/{ticker}/orderbook", params={"depth": 1})
+
+                yes_bid = orderbook.get("orderbook", {}).get("yes", [[0, 0]])[0][0] if orderbook.get("orderbook", {}).get("yes") else 0
+                yes_ask = orderbook.get("orderbook", {}).get("no", [[0, 0]])[0][0] if orderbook.get("orderbook", {}).get("no") else 100
+                # Note: no_ask at price X means yes_ask at 100-X
+                yes_ask = 100 - yes_ask if yes_ask else 100
+
+                # Use mid price
+                current_price = (yes_bid + yes_ask) // 2 if yes_bid and yes_ask else yes_bid or yes_ask
+
+                if ticker in self.last_prices:
+                    last_price = self.last_prices[ticker]
+                    price_change = current_price - last_price
+
+                    if abs(price_change) >= self.min_price_move:
+                        await self._execute_trade(ticker, price_change, orderbook)
+
+                self.last_prices[ticker] = current_price
+
+            except Exception as e:
+                print(f"Error checking {ticker}: {e}")
+
+    async def _execute_trade(self, ticker: str, price_change: int, orderbook: dict):
+        """Execute a momentum trade."""
+        # Determine side based on momentum
+        if price_change > 0:
+            # Price went UP - buy YES
+            side = "yes"
+            # Get the ask price (best offer to sell YES)
+            no_levels = orderbook.get("orderbook", {}).get("no", [])
+            if no_levels:
+                ask_price = 100 - no_levels[0][0]  # Convert no_bid to yes_ask
+            else:
+                print(f"No ask available for {ticker}")
+                return
+        else:
+            # Price went DOWN - buy NO
+            side = "no"
+            # Get the no ask price (best offer to sell NO)
+            yes_levels = orderbook.get("orderbook", {}).get("yes", [])
+            if yes_levels:
+                ask_price = 100 - yes_levels[0][0]  # Convert yes_bid to no_ask
+            else:
+                print(f"No ask available for {ticker}")
+                return
+
+        # Create trade record
+        trade = BotTrade(
+            timestamp=datetime.now().isoformat(),
+            ticker=ticker,
+            side=side,
+            price=ask_price,
+            count=self.max_shares,
+            trigger_price_change=price_change
+        )
+
+        try:
+            # Place the order - use the ask price to take liquidity
+            order_data = {
+                "ticker": ticker,
+                "side": side,
+                "action": "buy",
+                "count": self.max_shares,
+                "type": "limit",
+            }
+            if side == "yes":
+                order_data["yes_price"] = ask_price
+            else:
+                order_data["no_price"] = ask_price
+
+            result = await client.request("POST", "/portfolio/orders", json_data=order_data)
+            trade.order_id = result.get("order", {}).get("order_id")
+            trade.status = "filled" if result.get("order", {}).get("status") == "executed" else "placed"
+            print(f"🤖 BOT TRADE: {side.upper()} {self.max_shares}x {ticker} @ {ask_price}¢ (triggered by {price_change:+d}¢ move)")
+        except Exception as e:
+            trade.status = "failed"
+            print(f"❌ Bot trade failed: {e}")
+
+        self.trades.append(trade)
+        # Keep only last 100 trades
+        if len(self.trades) > 100:
+            self.trades = self.trades[-100:]
+
+
+# Global bot instance
+momentum_bot = MomentumBot()
+
+
+class BotConfig(BaseModel):
+    enabled: bool
+    min_price_move: int = 10
+    max_shares: int = 50
+    poll_interval: int = 5
+
+
+@app.post("/api/bot/start")
+async def start_bot(config: Optional[BotConfig] = None):
+    """Start the momentum bot on all active NHL games."""
+    try:
+        if momentum_bot.enabled:
+            return {"status": "already_running", "message": "Bot is already running"}
+
+        # Apply config if provided
+        if config:
+            momentum_bot.min_price_move = config.min_price_move
+            momentum_bot.max_shares = config.max_shares
+            momentum_bot.poll_interval = config.poll_interval
+
+        # Get all active NHL markets
+        markets_result = await client.request("GET", "/markets", params={"series_ticker": "KXNHLGAME", "limit": 100})
+        markets = markets_result.get("markets", [])
+
+        # Filter to active markets only
+        active_tickers = [m["ticker"] for m in markets if m.get("status") == "active"]
+
+        if not active_tickers:
+            return {"status": "error", "message": "No active NHL markets found"}
+
+        await momentum_bot.start(active_tickers)
+
+        return {
+            "status": "started",
+            "monitored_markets": len(active_tickers),
+            "tickers": active_tickers,
+            "config": {
+                "min_price_move": momentum_bot.min_price_move,
+                "max_shares": momentum_bot.max_shares,
+                "poll_interval": momentum_bot.poll_interval
+            }
+        }
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/bot/stop")
+async def stop_bot():
+    """Stop the momentum bot."""
+    try:
+        if not momentum_bot.enabled:
+            return {"status": "already_stopped", "message": "Bot is not running"}
+
+        await momentum_bot.stop()
+        return {"status": "stopped"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/bot/status")
+async def get_bot_status():
+    """Get the current bot status and recent trades."""
+    return {
+        "enabled": momentum_bot.enabled,
+        "monitored_markets": len(momentum_bot.monitored_tickers),
+        "tickers": momentum_bot.monitored_tickers,
+        "config": {
+            "min_price_move": momentum_bot.min_price_move,
+            "max_shares": momentum_bot.max_shares,
+            "poll_interval": momentum_bot.poll_interval
+        },
+        "recent_trades": [
+            {
+                "timestamp": t.timestamp,
+                "ticker": t.ticker,
+                "side": t.side,
+                "price": t.price,
+                "count": t.count,
+                "trigger": t.trigger_price_change,
+                "status": t.status
+            }
+            for t in momentum_bot.trades[-20:]
+        ],
+        "total_trades": len(momentum_bot.trades)
+    }
