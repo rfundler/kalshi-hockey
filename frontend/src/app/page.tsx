@@ -522,19 +522,25 @@ export default function TradingDashboard() {
           // Target price is 1 cent above highest bid
           const targetPrice = highestBid + 1
 
-          // If we have an existing order, check if it needs to be cancelled and replaced
+          // Check if parameters are valid: bid < 90, qty at highest bid >= 125
+          const paramsValid = highestBid < 90 && highestBidQty >= PENNY_BOT_MIN_BID_QTY
+
+          // If we have an existing order, check if it needs to be cancelled
           if (existingOrder) {
             const ourPrice = side === 'yes' ? existingOrder.yes_price : existingOrder.no_price
 
-            // If our order is NOT at the top (someone outbid us), cancel and re-place
-            if (ourPrice && ourPrice < targetPrice) {
+            // Cancel if: outbid OR parameters no longer valid
+            const outbid = ourPrice && ourPrice < targetPrice
+            const shouldCancel = outbid || !paramsValid
+
+            if (shouldCancel) {
               pennyBotPending.current.add(key)
-              const logMsg = `[${new Date().toLocaleTimeString()}] Cancelling ${side.toUpperCase()} @ ${ourPrice}¢ - outbid on ${market.ticker}`
+              const reason = !paramsValid ? 'params invalid' : 'outbid'
+              const logMsg = `[${new Date().toLocaleTimeString()}] Cancelling ${side.toUpperCase()} @ ${ourPrice}¢ - ${reason} on ${market.ticker}`
               setPennyBotLog(prev => [logMsg, ...prev].slice(0, 50))
 
               try {
                 await cancelPennyOrder(existingOrder.order_id)
-                // Small delay before re-placing
                 await new Promise(r => setTimeout(r, 500))
               } finally {
                 setTimeout(() => pennyBotPending.current.delete(key), 1000)
@@ -543,8 +549,8 @@ export default function TradingDashboard() {
             continue // Will re-check on next cycle after cancel
           }
 
-          // Check conditions: bid < 90, qty at highest bid >= 125
-          if (highestBid >= 90 || highestBidQty < PENNY_BOT_MIN_BID_QTY) continue
+          // Don't place new order if params invalid
+          if (!paramsValid) continue
 
           // Check if we already hold >= 50 contracts on this side (max position)
           const position = positions.find(p => p.ticker === market.ticker)
@@ -1169,8 +1175,8 @@ export default function TradingDashboard() {
       ) : (
         // Market list view
         <div className="max-w-7xl mx-auto px-4 py-4">
-          {/* Search */}
-          <div className="mb-6">
+          {/* Search and Controls */}
+          <div className="mb-6 flex items-center justify-between gap-4">
             <input
               type="text"
               placeholder="Search markets..."
@@ -1178,6 +1184,14 @@ export default function TradingDashboard() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full max-w-md bg-white border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {Object.values(pennyBotStrikes).some(m => m !== 'off') && (
+              <button
+                onClick={() => setPennyBotStrikes({})}
+                className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap"
+              >
+                🛑 Stop All Penny Bots ({Object.values(pennyBotStrikes).filter(m => m !== 'off').length})
+              </button>
+            )}
           </div>
 
           {loading ? (
