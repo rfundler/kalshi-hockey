@@ -730,7 +730,7 @@ export default function TradingDashboard() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-yellow-800">🤖 Penny Bot</span>
-                <span className="text-xs text-yellow-600">(bid &lt;90¢, qty &gt;69)</span>
+                <span className="text-xs text-yellow-600">(bid &lt;90¢, qty ≥125)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500">All strikes:</span>
