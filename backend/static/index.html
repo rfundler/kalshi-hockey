@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Kalshi Trader</title>
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+            padding-top: env(safe-area-inset-top, 20px);
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .btn {
+            background: #4a4ae8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.1s;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+            opacity: 0.8;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+
+        /* Games List */
+        .games-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .game-card {
+            background: #2d2d44;
+            border-radius: 16px;
+            padding: 16px;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .game-card:active {
+            transform: scale(0.98);
+        }
+
+        .game-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .game-teams {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .team-info {
+            text-align: center;
+        }
+
+        .team-name {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .team-price {
+            font-size: 18px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        .vs {
+            color: #666;
+            font-size: 14px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 60px;
+            margin-bottom: 16px;
+        }
+
+        /* Trade Screen */
+        .trade-screen {
+            display: none;
+        }
+
+        .trade-screen.active {
+            display: block;
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            color: #4a4ae8;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 16px;
+            padding: 8px 0;
+        }
+
+        .trade-title {
+            font-size: 24px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .trade-cards {
+            display: flex;
+            gap: 12px;
+        }
+
+        .trade-card {
+            flex: 1;
+            border-radius: 20px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .trade-card.side-a {
+            background: #2563eb;
+        }
+
+        .trade-card.side-b {
+            background: #dc2626;
+        }
+
+        .trade-card.side-a-no {
+            background: #1e40af;
+        }
+
+        .trade-card.side-b-no {
+            background: #991b1b;
+        }
+
+        .section-divider {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            margin: 16px 0 12px 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .trade-team-name {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .trade-price-info {
+            text-align: center;
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        .available-info {
+            text-align: center;
+            font-size: 12px;
+            padding: 6px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+        }
+
+        .available-info.has-liquidity {
+            color: #4ade80;
+        }
+
+        .available-info.no-liquidity {
+            color: #fbbf24;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .input-label {
+            font-size: 11px;
+            text-align: center;
+            opacity: 0.8;
+        }
+
+        .trade-input {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 20px;
+            font-weight: 700;
+            text-align: center;
+            color: white;
+            width: 100%;
+        }
+
+        .trade-input::placeholder {
+            color: rgba(255,255,255,0.5);
+        }
+
+        .bet-btn {
+            background: white;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.1s;
+        }
+
+        .bet-btn:active {
+            transform: scale(0.95);
+        }
+
+        .bet-btn.side-a {
+            color: #2563eb;
+        }
+
+        .bet-btn.side-b {
+            color: #dc2626;
+        }
+
+        .bet-btn.side-a-no {
+            color: #1e40af;
+        }
+
+        .bet-btn.side-b-no {
+            color: #991b1b;
+        }
+
+        .bet-btn:disabled {
+            opacity: 0.5;
+        }
+
+        /* Add Game Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 100;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .modal.active {
+            display: block;
+        }
+
+        .modal-content {
+            background: #2d2d44;
+            border-radius: 20px;
+            padding: 24px;
+            max-width: 400px;
+            margin: 0 auto;
+            margin-top: 40px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 28px;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: #1a1a2e;
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 14px;
+            font-size: 16px;
+            color: white;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #4a4ae8;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        .lookup-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .lookup-row .form-input {
+            flex: 1;
+        }
+
+        .lookup-result {
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .lookup-team {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .lookup-team:last-child {
+            border-bottom: none;
+        }
+
+        .error-msg {
+            color: #ef4444;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        .success-msg {
+            color: #4ade80;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4ade80;
+            color: #000;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            z-index: 200;
+            display: none;
+        }
+
+        .toast.error {
+            background: #ef4444;
+            color: white;
+        }
+
+        .toast.active {
+            display: block;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Games List Screen -->
+    <div id="games-screen">
+        <div class="header">
+            <h1>Games</h1>
+            <button class="btn btn-small" onclick="showAddModal()">+ Add</button>
+        </div>
+        <div id="games-list" class="games-list"></div>
+    </div>
+
+    <!-- Trade Screen -->
+    <div id="trade-screen" class="trade-screen">
+        <button class="back-btn" onclick="showGamesList()">← Back</button>
+        <div class="trade-title" id="trade-title"></div>
+
+        <div class="section-divider">YES</div>
+        <div class="trade-cards">
+            <!-- Side A Yes -->
+            <div class="trade-card side-a">
+                <div class="trade-team-name" id="side-a-name"></div>
+                <div class="trade-price-info">Ask: <span id="side-a-yes-ask">--</span>¢</div>
+                <div class="available-info" id="side-a-yes-available">Available: --</div>
+                <div class="input-group">
+                    <label class="input-label">Contracts</label>
+                    <input type="number" class="trade-input" id="side-a-yes-contracts" value="10" inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Limit (¢)</label>
+                    <input type="number" class="trade-input" id="side-a-yes-limit" value="50" inputmode="numeric">
+                </div>
+                <button class="bet-btn side-a" id="bet-btn-a-yes" onclick="placeBet('a', 'yes')">BET YES</button>
+            </div>
+
+            <!-- Side B Yes -->
+            <div class="trade-card side-b">
+                <div class="trade-team-name" id="side-b-name"></div>
+                <div class="trade-price-info">Ask: <span id="side-b-yes-ask">--</span>¢</div>
+                <div class="available-info" id="side-b-yes-available">Available: --</div>
+                <div class="input-group">
+                    <label class="input-label">Contracts</label>
+                    <input type="number" class="trade-input" id="side-b-yes-contracts" value="10" inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Limit (¢)</label>
+                    <input type="number" class="trade-input" id="side-b-yes-limit" value="50" inputmode="numeric">
+                </div>
+                <button class="bet-btn side-b" id="bet-btn-b-yes" onclick="placeBet('b', 'yes')">BET YES</button>
+            </div>
+        </div>
+
+        <div class="section-divider">NO</div>
+        <div class="trade-cards">
+            <!-- Side A No -->
+            <div class="trade-card side-a-no">
+                <div class="trade-team-name" id="side-a-name-no"></div>
+                <div class="trade-price-info">Ask: <span id="side-a-no-ask">--</span>¢</div>
+                <div class="available-info" id="side-a-no-available">Available: --</div>
+                <div class="input-group">
+                    <label class="input-label">Contracts</label>
+                    <input type="number" class="trade-input" id="side-a-no-contracts" value="10" inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Limit (¢)</label>
+                    <input type="number" class="trade-input" id="side-a-no-limit" value="50" inputmode="numeric">
+                </div>
+                <button class="bet-btn side-a-no" id="bet-btn-a-no" onclick="placeBet('a', 'no')">BET NO</button>
+            </div>
+
+            <!-- Side B No -->
+            <div class="trade-card side-b-no">
+                <div class="trade-team-name" id="side-b-name-no"></div>
+                <div class="trade-price-info">Ask: <span id="side-b-no-ask">--</span>¢</div>
+                <div class="available-info" id="side-b-no-available">Available: --</div>
+                <div class="input-group">
+                    <label class="input-label">Contracts</label>
+                    <input type="number" class="trade-input" id="side-b-no-contracts" value="10" inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Limit (¢)</label>
+                    <input type="number" class="trade-input" id="side-b-no-limit" value="50" inputmode="numeric">
+                </div>
+                <button class="bet-btn side-b-no" id="bet-btn-b-no" onclick="placeBet('b', 'no')">BET NO</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Game Modal -->
+    <div id="add-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Add Game</div>
+                <button class="close-btn" onclick="hideAddModal()">×</button>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Enter any ticker from the game</label>
+                <div class="lookup-row">
+                    <input type="text" class="form-input" id="ticker-input" placeholder="e.g., KXNBA-LAL">
+                    <button class="btn" id="lookup-btn" onclick="lookupTicker()">Lookup</button>
+                </div>
+                <div id="lookup-error" class="error-msg"></div>
+            </div>
+
+            <div id="lookup-result" class="lookup-result" style="display: none;">
+                <div class="lookup-team">
+                    <span>Side A:</span>
+                    <span id="result-side-a"></span>
+                </div>
+                <div class="lookup-team">
+                    <span>Side B:</span>
+                    <span id="result-side-b"></span>
+                </div>
+            </div>
+
+            <div id="defaults-section" style="display: none;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Default Contracts</label>
+                        <input type="number" class="form-input" id="default-contracts" value="10" inputmode="numeric">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Default Limit (¢)</label>
+                        <input type="number" class="form-input" id="default-limit" value="50" inputmode="numeric">
+                    </div>
+                </div>
+                <button class="btn" style="width: 100%;" id="add-game-btn" onclick="addGame()">Add Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script>
+        let games = [];
+        let currentGame = null;
+        let lookupData = null;
+
+        // API calls
+        const api = {
+            async get(path) {
+                const res = await fetch(path);
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            },
+            async post(path, data) {
+                const res = await fetch(path, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            },
+            async delete(path) {
+                const res = await fetch(path, { method: 'DELETE' });
+                if (!res.ok) throw new Error(await res.text());
+                return res.json();
+            }
+        };
+
+        // Load games
+        async function loadGames() {
+            try {
+                games = await api.get('/games');
+                renderGames();
+            } catch (e) {
+                showToast('Failed to load games', true);
+            }
+        }
+
+        // Render games list
+        function renderGames() {
+            const list = document.getElementById('games-list');
+
+            if (games.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🏀</div>
+                        <div>No games yet</div>
+                        <div style="margin-top: 8px; font-size: 14px;">Tap + Add to get started</div>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = games.map(g => `
+                <div class="game-card" onclick="openTrade('${g.game.id}')">
+                    <div class="game-name">${g.game.name}</div>
+                    <div class="game-teams">
+                        <div class="team-info">
+                            <div class="team-name">${g.game.side_a.team_name}</div>
+                            <div class="team-price">${g.side_a_ask ? g.side_a_ask + '¢' : '--'}</div>
+                        </div>
+                        <div class="vs">vs</div>
+                        <div class="team-info">
+                            <div class="team-name">${g.game.side_b.team_name}</div>
+                            <div class="team-price">${g.side_b_ask ? g.side_b_ask + '¢' : '--'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Open trade screen
+        function openTrade(gameId) {
+            currentGame = games.find(g => g.game.id === gameId);
+            if (!currentGame) return;
+
+            document.getElementById('games-screen').style.display = 'none';
+            document.getElementById('trade-screen').classList.add('active');
+
+            document.getElementById('trade-title').textContent = currentGame.game.name;
+
+            // Team names
+            document.getElementById('side-a-name').textContent = currentGame.game.side_a.team_name;
+            document.getElementById('side-b-name').textContent = currentGame.game.side_b.team_name;
+            document.getElementById('side-a-name-no').textContent = currentGame.game.side_a.team_name;
+            document.getElementById('side-b-name-no').textContent = currentGame.game.side_b.team_name;
+
+            // Yes defaults
+            document.getElementById('side-a-yes-contracts').value = currentGame.game.side_a.size;
+            document.getElementById('side-a-yes-limit').value = currentGame.game.side_a.price_limit;
+            document.getElementById('side-b-yes-contracts').value = currentGame.game.side_b.size;
+            document.getElementById('side-b-yes-limit').value = currentGame.game.side_b.price_limit;
+
+            // No defaults
+            document.getElementById('side-a-no-contracts').value = currentGame.game.side_a.size;
+            document.getElementById('side-a-no-limit').value = currentGame.game.side_a.price_limit;
+            document.getElementById('side-b-no-contracts').value = currentGame.game.side_b.size;
+            document.getElementById('side-b-no-limit').value = currentGame.game.side_b.price_limit;
+
+            updateTradeInfo();
+
+            // Update available on input change
+            document.getElementById('side-a-yes-limit').addEventListener('input', updateTradeInfo);
+            document.getElementById('side-b-yes-limit').addEventListener('input', updateTradeInfo);
+            document.getElementById('side-a-no-limit').addEventListener('input', updateTradeInfo);
+            document.getElementById('side-b-no-limit').addEventListener('input', updateTradeInfo);
+        }
+
+        // Update trade info (prices, available)
+        function updateTradeInfo() {
+            if (!currentGame) return;
+
+            // Get limits from inputs
+            const limitAYes = parseInt(document.getElementById('side-a-yes-limit').value) || 0;
+            const limitBYes = parseInt(document.getElementById('side-b-yes-limit').value) || 0;
+            const limitANo = parseInt(document.getElementById('side-a-no-limit').value) || 0;
+            const limitBNo = parseInt(document.getElementById('side-b-no-limit').value) || 0;
+
+            // Team A Yes market
+            const teamAYesAsks = currentGame.side_a_asks || [];
+            const teamAYesAsk = teamAYesAsks.length > 0 ? teamAYesAsks[0].price : null;
+            const teamAYesAvail = calcAvailable(teamAYesAsks, limitAYes);
+
+            // Team A No market
+            const teamANoAsks = currentGame.side_a_no_asks || [];
+            const teamANoAsk = teamANoAsks.length > 0 ? teamANoAsks[0].price : null;
+            const teamANoAvail = calcAvailable(teamANoAsks, limitANo);
+
+            // Team B Yes market
+            const teamBYesAsks = currentGame.side_b_asks || [];
+            const teamBYesAsk = teamBYesAsks.length > 0 ? teamBYesAsks[0].price : null;
+            const teamBYesAvail = calcAvailable(teamBYesAsks, limitBYes);
+
+            // Team B No market
+            const teamBNoAsks = currentGame.side_b_no_asks || [];
+            const teamBNoAsk = teamBNoAsks.length > 0 ? teamBNoAsks[0].price : null;
+            const teamBNoAvail = calcAvailable(teamBNoAsks, limitBNo);
+
+            // Update Yes cards
+            document.getElementById('side-a-yes-ask').textContent = teamAYesAsk || '--';
+            document.getElementById('side-b-yes-ask').textContent = teamBYesAsk || '--';
+
+            const availAYesEl = document.getElementById('side-a-yes-available');
+            const availBYesEl = document.getElementById('side-b-yes-available');
+            availAYesEl.textContent = `Available: ${teamAYesAvail} @ ≤${limitAYes}¢`;
+            availAYesEl.className = 'available-info ' + (teamAYesAvail > 0 ? 'has-liquidity' : 'no-liquidity');
+            availBYesEl.textContent = `Available: ${teamBYesAvail} @ ≤${limitBYes}¢`;
+            availBYesEl.className = 'available-info ' + (teamBYesAvail > 0 ? 'has-liquidity' : 'no-liquidity');
+
+            // Update No cards
+            document.getElementById('side-a-no-ask').textContent = teamANoAsk || '--';
+            document.getElementById('side-b-no-ask').textContent = teamBNoAsk || '--';
+
+            const availANoEl = document.getElementById('side-a-no-available');
+            const availBNoEl = document.getElementById('side-b-no-available');
+            availANoEl.textContent = `Available: ${teamANoAvail} @ ≤${limitANo}¢`;
+            availANoEl.className = 'available-info ' + (teamANoAvail > 0 ? 'has-liquidity' : 'no-liquidity');
+            availBNoEl.textContent = `Available: ${teamBNoAvail} @ ≤${limitBNo}¢`;
+            availBNoEl.className = 'available-info ' + (teamBNoAvail > 0 ? 'has-liquidity' : 'no-liquidity');
+        }
+
+        function calcAvailable(asks, limit) {
+            return asks.filter(a => a.price <= limit).reduce((sum, a) => sum + a.quantity, 0);
+        }
+
+        // Show games list
+        function showGamesList() {
+            document.getElementById('games-screen').style.display = 'block';
+            document.getElementById('trade-screen').classList.remove('active');
+            currentGame = null;
+            loadGames();
+        }
+
+        // Place bet on a specific market (yes or no)
+        async function placeBet(side, betType) {
+            if (!currentGame) return;
+
+            const contracts = parseInt(document.getElementById(`side-${side}-${betType}-contracts`).value);
+            const limit = parseInt(document.getElementById(`side-${side}-${betType}-limit`).value);
+
+            if (!contracts || !limit) {
+                showToast('Enter contracts and limit', true);
+                return;
+            }
+
+            const btn = document.getElementById(`bet-btn-${side}-${betType}`);
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>';
+
+            // Haptic feedback
+            if (navigator.vibrate) navigator.vibrate(50);
+
+            try {
+                const result = await api.post(`/games/${currentGame.game.id}/bet/${side}`, {
+                    contracts: contracts,
+                    limit_price: limit,
+                    bet_type: betType
+                });
+
+                showToast(`✓ ${betType.toUpperCase()}: ${result.size || contracts} @ ${limit}¢`);
+                if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+            } catch (e) {
+                showToast('Bet failed: ' + e.message, true);
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+            }
+
+            btn.disabled = false;
+            btn.textContent = `BET ${betType.toUpperCase()}`;
+            loadGames();
+        }
+
+        // Add game modal
+        function showAddModal() {
+            document.getElementById('add-modal').classList.add('active');
+            document.getElementById('ticker-input').value = '';
+            document.getElementById('lookup-error').textContent = '';
+            document.getElementById('lookup-result').style.display = 'none';
+            document.getElementById('defaults-section').style.display = 'none';
+            lookupData = null;
+        }
+
+        function hideAddModal() {
+            document.getElementById('add-modal').classList.remove('active');
+        }
+
+        // Lookup ticker
+        async function lookupTicker() {
+            const ticker = document.getElementById('ticker-input').value.trim();
+            if (!ticker) return;
+
+            const btn = document.getElementById('lookup-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>';
+            document.getElementById('lookup-error').textContent = '';
+
+            try {
+                lookupData = await api.get(`/markets/${encodeURIComponent(ticker)}/related`);
+
+                document.getElementById('result-side-a').textContent = lookupData.side_a.team_name;
+                document.getElementById('result-side-b').textContent = lookupData.side_b ? lookupData.side_b.team_name : 'Not found';
+                document.getElementById('lookup-result').style.display = 'block';
+
+                if (lookupData.side_b) {
+                    document.getElementById('defaults-section').style.display = 'block';
+                }
+            } catch (e) {
+                document.getElementById('lookup-error').textContent = 'Lookup failed: ' + e.message;
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Lookup';
+        }
+
+        // Add game
+        async function addGame() {
+            if (!lookupData || !lookupData.side_b) return;
+
+            const contracts = parseInt(document.getElementById('default-contracts').value) || 10;
+            const limit = parseInt(document.getElementById('default-limit').value) || 50;
+
+            const btn = document.getElementById('add-game-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>';
+
+            try {
+                const game = await api.post('/games', {
+                    name: lookupData.event_name,
+                    side_a: {
+                        ticker: lookupData.side_a.ticker,
+                        team_name: lookupData.side_a.team_name,
+                        size: contracts,
+                        price_limit: limit
+                    },
+                    side_b: {
+                        ticker: lookupData.side_b.ticker,
+                        team_name: lookupData.side_b.team_name,
+                        size: contracts,
+                        price_limit: limit
+                    }
+                });
+
+                hideAddModal();
+                await loadGames();
+
+                // Open trade screen for new game
+                openTrade(game.id);
+
+            } catch (e) {
+                showToast('Failed to add game: ' + e.message, true);
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Add Game';
+        }
+
+        // Toast
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast active' + (isError ? ' error' : '');
+            setTimeout(() => toast.classList.remove('active'), 3000);
+        }
+
+        // Auto-refresh
+        setInterval(() => {
+            if (currentGame) {
+                loadGames().then(() => {
+                    currentGame = games.find(g => g.game.id === currentGame.game.id);
+                    if (currentGame) updateTradeInfo();
+                });
+            }
+        }, 2000);
+
+        // Init
+        loadGames();
+    </script>
+</body>
+</html>
