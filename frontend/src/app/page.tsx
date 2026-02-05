@@ -791,16 +791,27 @@ export default function TradingDashboard() {
           </div>
 
           {/* Penny Bot Log */}
-          {pennyBotLog.length > 0 && (
+          {(pennyBotLog.length > 0 || Object.values(pennyBotStrikes).some(m => m !== 'off')) && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-yellow-800">🤖 Penny Bot Log</span>
-                <button
-                  onClick={() => setPennyBotLog([])}
-                  className="text-xs text-yellow-600 hover:text-yellow-800"
-                >
-                  Clear
-                </button>
+                <span className="text-sm font-medium text-yellow-800">
+                  🤖 Penny Bot {Object.values(pennyBotStrikes).filter(m => m !== 'off').length > 0 &&
+                    `(${Object.values(pennyBotStrikes).filter(m => m !== 'off').length} active)`}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPennyBotStrikes({})}
+                    className="text-xs bg-red-100 text-red-700 hover:bg-red-200 px-2 py-1 rounded font-medium"
+                  >
+                    Stop All
+                  </button>
+                  <button
+                    onClick={() => setPennyBotLog([])}
+                    className="text-xs text-yellow-600 hover:text-yellow-800"
+                  >
+                    Clear Log
+                  </button>
+                </div>
               </div>
               <div className="bg-white rounded border border-yellow-200 p-2 max-h-24 overflow-y-auto">
                 {pennyBotLog.map((log, i) => (
