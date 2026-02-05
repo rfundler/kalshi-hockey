@@ -132,21 +132,68 @@ async def get_categories():
 
 
 @app.get("/api/events")
-async def get_events(category: Optional[str] = None, search: Optional[str] = None, limit: int = 50):
-    """Get Mentions markets grouped by event with full titles."""
+async def get_events(category: Optional[str] = None, search: Optional[str] = None, limit: int = 50, series_ticker: Optional[str] = None):
+    """Get markets grouped by event. If series_ticker provided, fetch that series directly."""
     try:
         all_items = []
         seen_events = set()
 
-        # Fetch Mentions series
+        # If series_ticker is provided, query that series directly
+        if series_ticker:
+            markets_result = await client.request("GET", "/markets", params={"series_ticker": series_ticker, "limit": 200})
+            markets = markets_result.get("markets", [])
+
+            # Group markets by event_ticker
+            events_map = {}
+            for m in markets:
+                if m.get("status") != "active":
+                    continue
+
+                event_ticker = m.get("event_ticker", "")
+                if not event_ticker:
+                    continue
+
+                if event_ticker not in events_map:
+                    # Extract team names from title for hockey games
+                    title = m.get("title", "")
+                    events_map[event_ticker] = {
+                        "ticker": event_ticker,
+                        "title": title,
+                        "category": m.get("category", "Sports"),
+                        "type": "event",
+                        "markets": []
+                    }
+                events_map[event_ticker]["markets"].append(m)
+
+            # Fetch actual event titles
+            for event_ticker, event_data in events_map.items():
+                if len(event_data["markets"]) > 0:
+                    try:
+                        event_result = await client.request("GET", f"/events/{event_ticker}")
+                        event_info = event_result.get("event", {})
+                        event_data["title"] = event_info.get("title", event_data["title"])
+                    except:
+                        pass
+
+                    if search and search.lower() not in event_data["title"].lower():
+                        continue
+
+                    event_data["markets"].sort(key=lambda m: m.get("close_time", ""))
+                    all_items.append(event_data)
+                    seen_events.add(event_ticker)
+
+            all_items.sort(key=lambda e: e.get("ticker", ""))
+            return {"events": all_items[:limit]}
+
+        # Original behavior: Fetch Mentions series
         series_result = await client.request("GET", "/series", params={"limit": 100, "category": "Mentions"})
 
         for series in series_result.get("series", []):
-            series_ticker = series.get("ticker")
+            s_ticker = series.get("ticker")
 
             # Get markets for this series
             try:
-                markets_result = await client.request("GET", "/markets", params={"series_ticker": series_ticker, "limit": 200})
+                markets_result = await client.request("GET", "/markets", params={"series_ticker": s_ticker, "limit": 200})
                 markets = markets_result.get("markets", [])
 
                 # Group markets by event_ticker
@@ -162,7 +209,7 @@ async def get_events(category: Optional[str] = None, search: Optional[str] = Non
                     if event_ticker not in events_map:
                         events_map[event_ticker] = {
                             "ticker": event_ticker,
-                            "title": m.get("title", ""),  # Use first market's title as base
+                            "title": m.get("title", ""),
                             "category": "Mentions",
                             "type": "event",
                             "markets": []
@@ -172,13 +219,11 @@ async def get_events(category: Optional[str] = None, search: Optional[str] = Non
                 # Fetch actual event titles and add to results
                 for event_ticker, event_data in events_map.items():
                     if len(event_data["markets"]) > 0:
-                        # Try to get the real event title
                         try:
                             event_result = await client.request("GET", f"/events/{event_ticker}")
                             event_info = event_result.get("event", {})
                             event_data["title"] = event_info.get("title", event_data["title"])
                         except:
-                            # Fallback: construct title from market title
                             first_market = event_data["markets"][0]
                             event_data["title"] = first_market.get("title", "").split("say")[0] + "say...?" if "say" in first_market.get("title", "").lower() else first_market.get("title", "")
 
@@ -196,9 +241,7 @@ async def get_events(category: Optional[str] = None, search: Optional[str] = Non
             if len(all_items) >= limit:
                 break
 
-        # Sort by number of markets
         all_items.sort(key=lambda e: -len(e.get("markets", [])))
-
         return {"events": all_items[:limit]}
     except Exception as e:
         raise HTTPException(500, str(e))
