@@ -448,13 +448,15 @@ class BotTrade:
 
 class MomentumBot:
     def __init__(self):
-        self.min_price_move: int = 10  # cents
+        self.min_price_move: int = 7  # cents
         self.max_shares: int = 50
         self.poll_interval: float = 0.5  # seconds
         self.lookback_seconds: float = 1.0  # compare price to 1 second ago
+        self.cancel_delay: float = 3.0  # seconds before auto-cancelling unfilled orders
         self.enabled_events: set = set()  # event_tickers with bot enabled
         self.event_markets: dict = {}  # event_ticker -> list of market tickers
         self.price_history: dict = {}  # market_ticker -> list of (timestamp, price)
+        self.pending_orders: dict = {}  # order_id -> (timestamp, ticker)
         self.trades: list = []
         self._task: Optional[asyncio.Task] = None
         self._running: bool = False
@@ -571,7 +573,7 @@ class MomentumBot:
                     print(f"Error checking {ticker}: {e}")
 
     async def _execute_trade(self, ticker: str, event_ticker: str, price_change: int, orderbook: dict):
-        """Execute a momentum trade. Bid+1 as IOC order."""
+        """Execute a momentum trade. Bid+1, auto-cancel after delay if not filled."""
         if price_change > 0:
             # Price went UP - buy YES at highest YES bid + 1
             side = "yes"
@@ -615,9 +617,21 @@ class MomentumBot:
                 order_data["no_price"] = order_price
 
             result = await client.request("POST", "/portfolio/orders", json_data=order_data)
-            trade.order_id = result.get("order", {}).get("order_id")
-            trade.status = "filled" if result.get("order", {}).get("status") == "executed" else "placed"
-            print(f"🤖 BOT TRADE: {side.upper()} {self.max_shares}x {ticker} @ {order_price}¢ ({price_change:+d}¢ move)")
+            order_id = result.get("order", {}).get("order_id")
+            order_status = result.get("order", {}).get("status")
+            trade.order_id = order_id
+
+            if order_status == "executed":
+                trade.status = "filled"
+                print(f"🤖 BOT TRADE FILLED: {side.upper()} {self.max_shares}x {ticker} @ {order_price}¢ ({price_change:+d}¢ move)")
+            else:
+                trade.status = "placed"
+                print(f"🤖 BOT TRADE PLACED: {side.upper()} {self.max_shares}x {ticker} @ {order_price}¢ ({price_change:+d}¢ move)")
+                # Schedule auto-cancel
+                if order_id:
+                    self.pending_orders[order_id] = (time.time(), ticker)
+                    asyncio.create_task(self._auto_cancel_order(order_id, ticker))
+
         except Exception as e:
             trade.status = "failed"
             print(f"❌ Bot trade failed: {e}")
@@ -625,6 +639,29 @@ class MomentumBot:
         self.trades.append(trade)
         if len(self.trades) > 100:
             self.trades = self.trades[-100:]
+
+    async def _auto_cancel_order(self, order_id: str, ticker: str):
+        """Cancel order after delay if still resting."""
+        await asyncio.sleep(self.cancel_delay)
+
+        if order_id not in self.pending_orders:
+            return  # Already handled
+
+        try:
+            # Check if order is still resting
+            orders_result = await client.request("GET", "/portfolio/orders", params={"status": "resting"})
+            resting_orders = orders_result.get("orders", [])
+
+            for order in resting_orders:
+                if order.get("order_id") == order_id:
+                    # Order still resting, cancel it
+                    await client.request("DELETE", f"/portfolio/orders/{order_id}")
+                    print(f"🛑 Auto-cancelled unfilled order: {order_id} on {ticker}")
+                    break
+        except Exception as e:
+            print(f"Error auto-cancelling order: {e}")
+        finally:
+            self.pending_orders.pop(order_id, None)
 
 
 # Global bot instance
