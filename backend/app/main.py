@@ -607,7 +607,7 @@ class MomentumBot:
                 "side": side,
                 "action": "buy",
                 "count": self.max_shares,
-                "type": "ioc",  # Immediate or cancel
+                "type": "limit",
             }
             if side == "yes":
                 order_data["yes_price"] = order_price
@@ -616,8 +616,8 @@ class MomentumBot:
 
             result = await client.request("POST", "/portfolio/orders", json_data=order_data)
             trade.order_id = result.get("order", {}).get("order_id")
-            trade.status = "filled" if result.get("order", {}).get("status") == "executed" else "cancelled"
-            print(f"🤖 BOT TRADE: {side.upper()} {self.max_shares}x {ticker} @ {order_price}¢ IOC ({price_change:+d}¢ move)")
+            trade.status = "filled" if result.get("order", {}).get("status") == "executed" else "placed"
+            print(f"🤖 BOT TRADE: {side.upper()} {self.max_shares}x {ticker} @ {order_price}¢ ({price_change:+d}¢ move)")
         except Exception as e:
             trade.status = "failed"
             print(f"❌ Bot trade failed: {e}")
