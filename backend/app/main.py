@@ -448,7 +448,8 @@ class BotTrade:
 
 class MomentumBot:
     def __init__(self):
-        self.min_price_move: int = 7  # cents
+        self.min_price_move: int = 10  # cents
+        self.min_order_price: int = 7  # don't place bets below 7 cents
         self.max_shares: int = 50
         self.poll_interval: float = 0.5  # seconds
         self.lookback_seconds: float = 0.5  # compare price to 0.5 seconds ago
@@ -592,6 +593,11 @@ class MomentumBot:
                 order_price = highest_bid + 1
             else:
                 return
+
+        # Don't place bets below minimum price
+        if order_price < self.min_order_price:
+            print(f"⏭️ Skipping trade - price {order_price}¢ below minimum {self.min_order_price}¢")
+            return
 
         trade = BotTrade(
             timestamp=datetime.now().isoformat(),
