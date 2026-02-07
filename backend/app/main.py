@@ -451,8 +451,8 @@ class MomentumBot:
         self.min_price_move: int = 10  # cents
         self.min_order_price: int = 7  # don't place bets below 7 cents
         self.max_shares: int = 50
-        self.poll_interval: float = 0.5  # seconds
-        self.lookback_seconds: float = 0.5  # compare price to 0.5 seconds ago
+        self.poll_interval: float = 0.3  # seconds
+        self.lookback_seconds: float = 0.3  # compare price to 0.3 seconds ago
         self.cancel_delay: float = 3.0  # seconds before auto-cancelling unfilled orders
         self.enabled_events: set = set()  # event_tickers with bot enabled
         self.event_markets: dict = {}  # event_ticker -> list of market tickers
